@@ -63,4 +63,147 @@ st.markdown('<div style="background: #1e293b; border: 1px solid #334155; border-
 
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
-    selected_date 
+    selected_date = st.date_input("📅 Select Scan Date", datetime.today())
+    is_live = (selected_date == datetime.today().date())
+    if st.button("🚀 FORCE SCAN NOW", use_container_width=True, type="primary"):
+        st.cache_data.clear() 
+        st.success(f"Scanner Initiated! Downloading market data for {selected_date}...")
+
+@st.cache_data(ttl=60 if is_live else 86400)
+def fetch_market_data(target_date):
+    end_date = target_date + timedelta(days=1)
+    start_intraday = end_date - timedelta(days=5)
+    start_swing = end_date - timedelta(days=365)
+    
+    idx_daily = yf.download(list(indices.keys()), start=start_intraday.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), progress=False)
+    idx_intraday = yf.download(list(indices.keys()), start=start_intraday.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), interval='15m', progress=False)
+    stock_intraday = yf.download(list(stocks.keys()), start=start_intraday.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), interval='15m', progress=False)
+    stock_swing = yf.download(list(stocks.keys()), start=start_swing.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), progress=False)
+    
+    return idx_daily, idx_intraday, stock_intraday, stock_swing
+
+with st.spinner(f"Synchronizing with NSE Servers for {selected_date}..."):
+    idx_daily, idx_intraday, stock_intraday, stock_swing = fetch_market_data(selected_date)
+
+if idx_intraday.empty and not is_live:
+    st.error(f"⚠️ Yahoo Finance limits Intraday (15-Minute) data to the last 60 days. You selected a date too far in the past, so the Intraday scanners cannot run. However, the Daily Swing Trading table at the bottom will still work!")
+
+idx_html = '<div class="index-ribbon">'
+for ticker, name in indices.items():
+    try:
+        close = float(idx_daily['Close'][ticker].iloc[-1]) if isinstance(idx_daily.columns, pd.MultiIndex) else float(idx_daily['Close'].iloc[-1])
+        prev = float(idx_daily['Close'][ticker].iloc[-2]) if isinstance(idx_daily.columns, pd.MultiIndex) else float(idx_daily['Close'].iloc[-2])
+        pct = ((close - prev)/prev)*100
+        color, sign = ("green", "+") if pct >= 0 else ("red", "")
+        idx_html += f'<div class="index-card"><div class="index-name">{name}</div><div class="index-price">₹{close:,.2f} <span class="{color}" style="font-size:1.1rem;">{sign}{pct:.2f}%</span></div></div>'
+    except: pass
+idx_html += '</div>'
+st.markdown(idx_html, unsafe_allow_html=True)
+
+st.markdown('<div class="section-title">⚡ INDEX OPTIONS (INTRADAY SCALPING)</div>', unsafe_allow_html=True)
+if not idx_intraday.empty:
+    idx_table = "<div class='custom-table-container border-top-index'><table><thead><tr><th>INDEX</th><th>15M CMP</th><th>15M RSI</th><th>INDEX TARGET</th><th>INDEX SL</th><th>EXACT OPTION TO BUY</th></tr></thead><tbody>"
+    for ticker, name in indices.items():
+        try:
+            df = idx_intraday.xs(ticker, axis=1, level=1).copy() if isinstance(idx_intraday.columns, pd.MultiIndex) else idx_intraday.copy()
+            df = df.dropna()
+            if len(df) < 20: continue
+            close = float(df['Close'].iloc[-1])
+            df['delta'] = df['Close'].diff()
+            df['rsi'] = 100 - (100 / (1 + (df['delta'].clip(lower=0).rolling(14).mean() / -df['delta'].clip(upper=0).rolling(14).mean())))
+            df['sma_200'] = df['Close'].rolling(200).mean()
+            df['std'] = df['Close'].rolling(20).std()
+            df['upper_bb'] = df['Close'].rolling(20).mean() + (2 * df['std'])
+            df['lower_bb'] = df['Close'].rolling(20).mean() - (2 * df['std'])
+            
+            c_rsi = float(df['rsi'].iloc[-1])
+            u_bb, l_bb, sma200 = float(df['upper_bb'].iloc[-1]), float(df['lower_bb'].iloc[-1]), float(df['sma_200'].iloc[-1])
+            strike = get_atm_strike(close, ticker, is_index=True)
+            action, act_class, tp, sl = "-", "b-dark", "-", "-"
+            
+            if c_rsi < 30 and close <= l_bb and close > sma200:
+                action, act_class = f"🔥 BUY {strike} CE", "b-green"
+                tp, sl = f"₹{close*1.0025:,.0f}", f"₹{close*0.994:,.0f}"
+            elif c_rsi > 70 and close >= u_bb and close < sma200:
+                action, act_class = f"🩸 BUY {strike} PE", "b-red"
+                tp, sl = f"₹{close*0.9975:,.0f}", f"₹{close*1.006:,.0f}"
+                
+            rsi_color = "color: #10b981;" if c_rsi < 35 else ("color: #ef4444;" if c_rsi > 65 else "color: #94a3b8;")
+            tp_color = "color: #10b981; font-weight:bold;" if action != "-" else "color:#475569;"
+            sl_color = "color: #ef4444; font-weight:bold;" if action != "-" else "color:#475569;"
+            idx_table += f"<tr><td style='font-weight:bold;'>{name}</td><td>₹{close:,.0f}</td><td style='{rsi_color}; font-weight:bold;'>{c_rsi:.1f}</td><td style='{tp_color}'>{tp}</td><td style='{sl_color}'>{sl}</td><td><span class='badge {act_class}'>{action}</span></td></tr>"
+        except: pass
+    idx_table += "</tbody></table></div>"
+    st.markdown(idx_table, unsafe_allow_html=True)
+
+st.markdown('<div class="section-title">⚡ STOCK OPTIONS (INTRADAY SCALPING)</div>', unsafe_allow_html=True)
+if not stock_intraday.empty:
+    intra_html = "<div class='custom-table-container border-top-stock'><table><thead><tr><th>TICKER</th><th>SECTOR</th><th>15M CMP</th><th>15M RSI</th><th>ASTRO BIAS</th><th>STOCK TARGET</th><th>STOCK SL</th><th>EXACT OPTION TO BUY</th></tr></thead><tbody>"
+    for ticker, sector in stocks.items():
+        try:
+            df = stock_intraday.xs(ticker, axis=1, level=1).copy() if isinstance(stock_intraday.columns, pd.MultiIndex) else stock_intraday.copy()
+            df = df.dropna()
+            if len(df) < 20: continue
+            close = float(df['Close'].iloc[-1])
+            df['delta'] = df['Close'].diff()
+            df['rsi'] = 100 - (100 / (1 + (df['delta'].clip(lower=0).rolling(14).mean() / -df['delta'].clip(upper=0).rolling(14).mean())))
+            df['sma_200'] = df['Close'].rolling(200).mean()
+            df['std'] = df['Close'].rolling(20).std()
+            df['upper_bb'] = df['Close'].rolling(20).mean() + (2 * df['std'])
+            df['lower_bb'] = df['Close'].rolling(20).mean() - (2 * df['std'])
+            
+            c_rsi = float(df['rsi'].iloc[-1])
+            u_bb, l_bb, sma200 = float(df['upper_bb'].iloc[-1]), float(df['lower_bb'].iloc[-1]), float(df['sma_200'].iloc[-1])
+            a_score = astro_weights.get(sector, 50)
+            strike = get_atm_strike(close, ticker, is_index=False)
+            action, act_class, tp, sl = "-", "b-dark", "-", "-"
+            
+            if c_rsi < 25 and close <= l_bb and a_score >= 80 and close > sma200:
+                action, act_class = f"🔥 BUY {strike} CE", "b-green"
+                tp, sl = f"₹{close*1.005:,.1f}", f"₹{close*0.985:,.1f}"
+            elif c_rsi > 75 and close >= u_bb and a_score <= 45 and close < sma200:
+                action, act_class = f"🩸 BUY {strike} PE", "b-red"
+                tp, sl = f"₹{close*0.995:,.1f}", f"₹{close*1.015:,.1f}"
+                
+            rsi_color = "color: #10b981;" if c_rsi < 35 else ("color: #ef4444;" if c_rsi > 65 else "color: #94a3b8;")
+            tp_color = "color: #10b981; font-weight:bold;" if action != "-" else "color:#475569;"
+            sl_color = "color: #ef4444; font-weight:bold;" if action != "-" else "color:#475569;"
+            intra_html += f"<tr><td style='font-weight:bold;'>{ticker.replace('.NS','')}</td><td style='color:#94a3b8; font-size:0.8rem;'>{sector}</td><td>₹{close:,.1f}</td><td style='{rsi_color}; font-weight:bold;'>{c_rsi:.1f}</td><td>{a_score}/100</td><td style='{tp_color}'>{tp}</td><td style='{sl_color}'>{sl}</td><td><span class='badge {act_class}'>{action}</span></td></tr>"
+        except: pass
+    intra_html += "</tbody></table></div>"
+    st.markdown(intra_html, unsafe_allow_html=True)
+
+st.markdown('<div class="section-title">🎯 STOCK SWING TRADING (EQUITY)</div>', unsafe_allow_html=True)
+if not stock_swing.empty:
+    swing_html = "<div class='custom-table-container border-top-swing'><table><thead><tr><th>TICKER</th><th>SECTOR</th><th>CMP</th><th>DAILY RSI</th><th>TARGET (+6%)</th><th>STOP (-12%)</th><th>CONFIDENCE</th><th>ACTION</th></tr></thead><tbody>"
+    for ticker, sector in stocks.items():
+        try:
+            df = stock_swing.xs(ticker, axis=1, level=1).copy() if isinstance(stock_swing.columns, pd.MultiIndex) else stock_swing.copy()
+            df = df.dropna()
+            if len(df) < 200: continue
+            close = float(df['Close'].iloc[-1])
+            df['delta'] = df['Close'].diff()
+            df['rsi'] = 100 - (100 / (1 + (df['delta'].clip(lower=0).rolling(14).mean() / -df['delta'].clip(upper=0).rolling(14).mean())))
+            df['sma_200'] = df['Close'].rolling(200).mean()
+            df['lower_bb'] = df['Close'].rolling(20).mean() - (2 * df['Close'].rolling(20).std())
+            
+            c_rsi = float(df['rsi'].iloc[-1])
+            c_sma, c_lbb = float(df['sma_200'].iloc[-1]), float(df['lower_bb'].iloc[-1])
+            a_score = astro_weights.get(sector, 50)
+            
+            ts = 50 + (40 if 55<=c_rsi<=70 else (20 if 45<=c_rsi<55 else (-10 if c_rsi>70 else (30 if c_rsi<35 else 0))))
+            final_score = int((ts * 0.4) + (a_score * 0.6))
+            
+            sig, act_class = "HOLD", "b-dark"
+            if a_score >= 80 and close > c_sma and c_rsi < 35 and close <= (c_lbb * 1.02): sig, act_class = "STRONG BUY", "b-green"
+            elif final_score >= 65: sig, act_class = "BUY", "b-green"
+            elif final_score < 45: sig, act_class = "AVOID/SELL", "b-red"
+                
+            tp, sl = (f"₹{close*1.06:,.1f}", f"₹{close*0.88:,.1f}") if "BUY" in sig else ("-", "-")
+            rsi_c = "color: #10b981;" if c_rsi < 40 else ("color: #ef4444;" if c_rsi > 70 else "color: #94a3b8;")
+            tp_c = "color: #10b981; font-weight:bold;" if "BUY" in sig else "color:#475569;"
+            sl_c = "color: #ef4444; font-weight:bold;" if "BUY" in sig else "color:#475569;"
+            swing_html += f"<tr><td style='font-weight:bold;'>{ticker.replace('.NS','')}</td><td style='color:#94a3b8; font-size:0.8rem;'>{sector}</td><td>₹{close:,.1f}</td><td style='{rsi_c}; font-weight:bold;'>{c_rsi:.1f}</td><td style='{tp_c}'>{tp}</td><td style='{sl_c}'>{sl}</td><td style='font-weight:bold;'>{final_score}%</td><td><span class='badge {act_class}'>{sig}</span></td></tr>"
+        except: pass
+    swing_html += "</tbody></table></div>"
+    st.markdown(swing_html, unsafe_allow_html=True)
