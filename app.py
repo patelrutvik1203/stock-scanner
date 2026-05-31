@@ -65,12 +65,25 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- STRIKE PRICE CALCULATOR ---
+def get_atm_strike(price, ticker, is_index=False):
+    """Calculates the At-The-Money (ATM) strike price based on NSE step sizes"""
+    if is_index:
+        if 'BANK' in ticker: step = 100
+        elif 'SENSEX' in ticker or 'BSESN' in ticker: step = 100
+        else: step = 50 # NIFTY
+    else:
+        if price < 500: step = 5
+        elif price < 2000: step = 10
+        elif price < 4000: step = 20
+        else: step = 50
+    return int(round(price / step) * step)
+
 # --- CONFIGURATIONS ---
 indices = {
     '^NSEI': 'NIFTY 50', 
     '^NSEBANK': 'BANK NIFTY', 
     '^BSESN': 'SENSEX',
-    '^CNXIT': 'NIFTY IT'
 }
 
 stocks = {
@@ -82,11 +95,9 @@ stocks = {
 
 astro_weights = {'Banking': 90, 'Auto': 85, 'CapGoods': 85, 'Energy': 65, 'Metals': 80, 'Pharma': 45, 'IT': 30, 'FMCG': 25}
 
-# --- APP HEADER ---
 st.markdown('<div class="gradient-text">ASTRO-QUANT PRO SCANNER</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-text">Live Options & Swing Recommendations directly from the Algo Dashboard</div>', unsafe_allow_html=True)
 
-# --- CACHED DATA FETCHING ---
 @st.cache_data(ttl=60) # Refreshes every 60 seconds automatically
 def fetch_market_data():
     idx_daily = yf.download(list(indices.keys()), period='2d', progress=False)
@@ -124,12 +135,12 @@ st.markdown(idx_html, unsafe_allow_html=True)
 
 st.markdown("""
 <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-    <h4 style="color:#3b82f6; margin-top:0;">💡 Where are the recommendations?</h4>
-    <p style="color:#cbd5e1; margin-bottom:0; font-size:0.95rem;">All live trading recommendations appear <b>directly on this webpage</b>. The tables below automatically scan the market every 60 seconds. If a setup aligns perfectly, the "ACTION" column will light up green (BUY CALL) or red (BUY PUT). If no stocks meet the strict conditions right now, the action remains "HOLD" (Wait in cash).</p>
+    <h4 style="color:#3b82f6; margin-top:0;">💡 When to use this scanner?</h4>
+    <p style="color:#cbd5e1; margin-bottom:0; font-size:0.95rem;"><b>Intraday Options:</b> Check this exactly when 15-Minute candles close (9:30 AM, 9:45 AM, 10:00 AM, etc.).<br><b>Swing Trading:</b> Check this at <b>3:15 PM</b> to secure end-of-day equity deliveries before market close.</p>
 </div>
 """, unsafe_allow_html=True)
 
-# --- 2. INDEX INTRADAY OPTIONS SCANNER (NEW) ---
+# --- 2. INDEX INTRADAY OPTIONS SCANNER ---
 st.markdown('<div class="section-title">⚡ INDEX OPTIONS (INTRADAY SCALPING)</div>', unsafe_allow_html=True)
 st.markdown("""
 <div style="margin-bottom:10px;">
@@ -137,11 +148,10 @@ st.markdown("""
     <div class="metric-pill"><span class="title">Average Hold</span><span class="value">~50 Mins</span></div>
     <div class="metric-pill"><span class="title">Risk/Reward</span><span class="value">+0.25% TP | -0.6% SL</span></div>
 </div>
-<div class="section-desc">Monitors 15-Min charts on major indices. Excellent for At-The-Money (ATM) weekly expiries.</div>
 """, unsafe_allow_html=True)
 
 idx_table = """<div class="custom-table-container border-top-index"><table><thead><tr>
-    <th>INDEX</th><th>15M CMP</th><th>15M RSI</th><th>TARGET (+0.25%)</th><th>STOP LOSS (-0.6%)</th><th>OPTION ACTION</th>
+    <th>INDEX</th><th>15M CMP</th><th>15M RSI</th><th>INDEX TARGET</th><th>INDEX SL</th><th>EXACT OPTION TO BUY</th>
     </tr></thead><tbody>"""
 
 for ticker, name in indices.items():
@@ -161,19 +171,21 @@ for ticker, name in indices.items():
         c_rsi = float(df['rsi'].iloc[-1])
         u_bb, l_bb, sma200 = float(df['upper_bb'].iloc[-1]), float(df['lower_bb'].iloc[-1]), float(df['sma_200'].iloc[-1])
         
+        strike = get_atm_strike(close, ticker, is_index=True)
         action, act_class, tp, sl = "-", "b-dark", "-", "-"
+        
         if c_rsi < 30 and close <= l_bb and close > sma200:
-            action, act_class = "🔥 BUY CALL (CE)", "b-green"
-            tp, sl = f"₹{close*1.0025:,.2f}", f"₹{close*0.994:,.2f}"
+            action, act_class = f"🔥 BUY {strike} CE", "b-green"
+            tp, sl = f"₹{close*1.0025:,.0f}", f"₹{close*0.994:,.0f}"
         elif c_rsi > 70 and close >= u_bb and close < sma200:
-            action, act_class = "🩸 BUY PUT (PE)", "b-red"
-            tp, sl = f"₹{close*0.9975:,.2f}", f"₹{close*1.006:,.2f}"
+            action, act_class = f"🩸 BUY {strike} PE", "b-red"
+            tp, sl = f"₹{close*0.9975:,.0f}", f"₹{close*1.006:,.0f}"
             
         rsi_color = "color: #10b981;" if c_rsi < 35 else ("color: #ef4444;" if c_rsi > 65 else "color: #94a3b8;")
         tp_color = "color: #10b981; font-weight:bold;" if action != "-" else "color:#475569;"
         sl_color = "color: #ef4444; font-weight:bold;" if action != "-" else "color:#475569;"
         
-        idx_table += f"<tr><td style='font-weight:bold;'>{name}</td><td>₹{close:,.2f}</td><td style='{rsi_color}; font-weight:bold;'>{c_rsi:.1f}</td><td style='{tp_color}'>{tp}</td><td style='{sl_color}'>{sl}</td><td><span class='badge {act_class}'>{action}</span></td></tr>"
+        idx_table += f"<tr><td style='font-weight:bold;'>{name}</td><td>₹{close:,.0f}</td><td style='{rsi_color}; font-weight:bold;'>{c_rsi:.1f}</td><td style='{tp_color}'>{tp}</td><td style='{sl_color}'>{sl}</td><td><span class='badge {act_class}'>{action}</span></td></tr>"
     except: pass
 idx_table += "</tbody></table></div>"
 st.markdown(idx_table, unsafe_allow_html=True)
@@ -187,11 +199,10 @@ st.markdown("""
     <div class="metric-pill"><span class="title">Average Hold</span><span class="value">~90 Mins</span></div>
     <div class="metric-pill"><span class="title">Risk/Reward</span><span class="value">+0.5% TP | -1.5% SL</span></div>
 </div>
-<div class="section-desc">Identifies extreme mean-reversion setups combining Astrological strength + 15M Bollinger Band punctures.</div>
 """, unsafe_allow_html=True)
 
 intra_html = """<div class="custom-table-container border-top-stock"><table><thead><tr>
-    <th>TICKER</th><th>SECTOR</th><th>15M CMP</th><th>15M RSI</th><th>ASTRO BIAS</th><th>TARGET (+0.5%)</th><th>STOP LOSS (-1.5%)</th><th>OPTION ACTION</th>
+    <th>TICKER</th><th>SECTOR</th><th>15M CMP</th><th>15M RSI</th><th>ASTRO BIAS</th><th>STOCK TARGET</th><th>STOCK SL</th><th>EXACT OPTION TO BUY</th>
     </tr></thead><tbody>"""
 
 for ticker, sector in stocks.items():
@@ -212,19 +223,21 @@ for ticker, sector in stocks.items():
         u_bb, l_bb, sma200 = float(df['upper_bb'].iloc[-1]), float(df['lower_bb'].iloc[-1]), float(df['sma_200'].iloc[-1])
         a_score = astro_weights.get(sector, 50)
         
+        strike = get_atm_strike(close, ticker, is_index=False)
         action, act_class, tp, sl = "-", "b-dark", "-", "-"
+        
         if c_rsi < 25 and close <= l_bb and a_score >= 80 and close > sma200:
-            action, act_class = "🔥 BUY CALL (CE)", "b-green"
-            tp, sl = f"₹{close*1.005:,.2f}", f"₹{close*0.985:,.2f}"
+            action, act_class = f"🔥 BUY {strike} CE", "b-green"
+            tp, sl = f"₹{close*1.005:,.1f}", f"₹{close*0.985:,.1f}"
         elif c_rsi > 75 and close >= u_bb and a_score <= 45 and close < sma200:
-            action, act_class = "🩸 BUY PUT (PE)", "b-red"
-            tp, sl = f"₹{close*0.995:,.2f}", f"₹{close*1.015:,.2f}"
+            action, act_class = f"🩸 BUY {strike} PE", "b-red"
+            tp, sl = f"₹{close*0.995:,.1f}", f"₹{close*1.015:,.1f}"
             
         rsi_color = "color: #10b981;" if c_rsi < 35 else ("color: #ef4444;" if c_rsi > 65 else "color: #94a3b8;")
         tp_color = "color: #10b981; font-weight:bold;" if action != "-" else "color:#475569;"
         sl_color = "color: #ef4444; font-weight:bold;" if action != "-" else "color:#475569;"
         
-        intra_html += f"<tr><td style='font-weight:bold;'>{ticker.replace('.NS','')}</td><td style='color:#94a3b8; font-size:0.8rem;'>{sector}</td><td>₹{close:,.2f}</td><td style='{rsi_color}; font-weight:bold;'>{c_rsi:.1f}</td><td>{a_score}/100</td><td style='{tp_color}'>{tp}</td><td style='{sl_color}'>{sl}</td><td><span class='badge {act_class}'>{action}</span></td></tr>"
+        intra_html += f"<tr><td style='font-weight:bold;'>{ticker.replace('.NS','')}</td><td style='color:#94a3b8; font-size:0.8rem;'>{sector}</td><td>₹{close:,.1f}</td><td style='{rsi_color}; font-weight:bold;'>{c_rsi:.1f}</td><td>{a_score}/100</td><td style='{tp_color}'>{tp}</td><td style='{sl_color}'>{sl}</td><td><span class='badge {act_class}'>{action}</span></td></tr>"
     except: pass
 intra_html += "</tbody></table></div>"
 st.markdown(intra_html, unsafe_allow_html=True)
@@ -238,7 +251,6 @@ st.markdown("""
     <div class="metric-pill"><span class="title">Average Hold</span><span class="value">5 to 10 Days</span></div>
     <div class="metric-pill"><span class="title">Risk/Reward</span><span class="value">+6.0% TP | -12.0% SL</span></div>
 </div>
-<div class="section-desc">Highest conviction setups. Golden Cross trends + Astro Sector Boost + Daily RSI Pullbacks.</div>
 """, unsafe_allow_html=True)
 
 swing_html = """<div class="custom-table-container border-top-swing"><table><thead><tr>
@@ -269,12 +281,12 @@ for ticker, sector in stocks.items():
         elif final_score >= 65: sig, act_class = "BUY", "b-green"
         elif final_score < 45: sig, act_class = "AVOID/SELL", "b-red"
             
-        tp, sl = (f"₹{close*1.06:,.2f}", f"₹{close*0.88:,.2f}") if "BUY" in sig else ("-", "-")
+        tp, sl = (f"₹{close*1.06:,.1f}", f"₹{close*0.88:,.1f}") if "BUY" in sig else ("-", "-")
         rsi_c = "color: #10b981;" if c_rsi < 40 else ("color: #ef4444;" if c_rsi > 70 else "color: #94a3b8;")
         tp_c = "color: #10b981; font-weight:bold;" if "BUY" in sig else "color:#475569;"
         sl_c = "color: #ef4444; font-weight:bold;" if "BUY" in sig else "color:#475569;"
         
-        swing_html += f"<tr><td style='font-weight:bold;'>{ticker.replace('.NS','')}</td><td style='color:#94a3b8; font-size:0.8rem;'>{sector}</td><td>₹{close:,.2f}</td><td style='{rsi_c}; font-weight:bold;'>{c_rsi:.1f}</td><td style='{tp_c}'>{tp}</td><td style='{sl_c}'>{sl}</td><td style='font-weight:bold;'>{final_score}%</td><td><span class='badge {act_class}'>{sig}</span></td></tr>"
+        swing_html += f"<tr><td style='font-weight:bold;'>{ticker.replace('.NS','')}</td><td style='color:#94a3b8; font-size:0.8rem;'>{sector}</td><td>₹{close:,.1f}</td><td style='{rsi_c}; font-weight:bold;'>{c_rsi:.1f}</td><td style='{tp_c}'>{tp}</td><td style='{sl_c}'>{sl}</td><td style='font-weight:bold;'>{final_score}%</td><td><span class='badge {act_class}'>{sig}</span></td></tr>"
     except: pass
 
 swing_html += "</tbody></table></div>"
