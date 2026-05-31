@@ -38,6 +38,7 @@ st.markdown("""
         font-size: 1.5rem; font-weight: 800; color: #e2e8f0; 
         margin-top: 40px; margin-bottom: 5px; display: flex; align-items: center; gap: 10px;
     }
+    .section-desc { color: #94a3b8; font-size: 0.95rem; margin-bottom: 15px; }
     
     .custom-table-container {
         background-color: #1e293b; border-radius: 12px; border: 1px solid #334155;
@@ -55,4 +56,43 @@ st.markdown("""
     
     .badge { padding: 5px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 700; display: inline-block; text-align: center; }
     .b-green { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .b-red { background: rgba(239, 
+    .b-red { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .b-dark { background: #334155; color: #94a3b8; }
+    
+    .metric-pill { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px 15px; display: inline-block; margin-right: 15px; margin-bottom: 15px;}
+    .metric-pill span.title { color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; display: block; margin-bottom: 2px;}
+    .metric-pill span.value { color: #f8fafc; font-size: 1.1rem; font-weight: bold; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- STRIKE PRICE CALCULATOR ---
+def get_atm_strike(price, ticker, is_index=False):
+    if is_index:
+        if 'BANK' in ticker: step = 100
+        elif 'SENSEX' in ticker or 'BSESN' in ticker: step = 100
+        else: step = 50 
+    else:
+        if price < 500: step = 5
+        elif price < 2000: step = 10
+        elif price < 4000: step = 20
+        else: step = 50
+    return int(round(price / step) * step)
+
+# --- CONFIGURATIONS ---
+indices = {'^NSEI': 'NIFTY 50', '^NSEBANK': 'BANK NIFTY', '^BSESN': 'SENSEX'}
+stocks = {'HDFCBANK.NS': 'Banking', 'ICICIBANK.NS': 'Banking', 'SBIN.NS': 'Banking', 'M&M.NS': 'Auto', 'HAL.NS': 'CapGoods', 'TCS.NS': 'IT', 'RELIANCE.NS': 'Energy', 'LT.NS': 'CapGoods', 'SUNPHARMA.NS': 'Pharma', 'TATASTEEL.NS': 'Metals', 'ITC.NS': 'FMCG'}
+astro_weights = {'Banking': 90, 'Auto': 85, 'CapGoods': 85, 'Energy': 65, 'Metals': 80, 'Pharma': 45, 'IT': 30, 'FMCG': 25}
+
+st.markdown('<div class="gradient-text">ASTRO-QUANT PRO SCANNER</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-text">Live Options & Swing Recommendations directly from the Algo Dashboard</div>', unsafe_allow_html=True)
+
+
+# --- SCANNER CONTROLS (DATE PICKER ADDED BACK!) ---
+st.markdown("""
+<div style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin-bottom: 30px; text-align:center;">
+    <h4 style="color:#f8fafc; margin-top:0; margin-bottom:15px;">🔍 Market Scanner Controls</h4>
+    <p style="color:#94a3b8; font-size:0.9rem; margin-bottom:0;">Leave date as today for live scanning, or select a past date to backtest.</p>
+</div>
+""", unsafe_allow_html=True)
+
+col1, col2, col3 
