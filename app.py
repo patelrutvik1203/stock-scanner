@@ -52,4 +52,15 @@ def get_atm_strike(price, ticker, is_index=False):
         else: step = 50
     return int(round(price / step) * step)
 
-indices = 
+indices = {'^NSEI': 'NIFTY 50', '^NSEBANK': 'BANK NIFTY', '^BSESN': 'SENSEX'}
+stocks = {'HDFCBANK.NS': 'Banking', 'ICICIBANK.NS': 'Banking', 'SBIN.NS': 'Banking', 'M&M.NS': 'Auto', 'HAL.NS': 'CapGoods', 'TCS.NS': 'IT', 'RELIANCE.NS': 'Energy', 'LT.NS': 'CapGoods', 'SUNPHARMA.NS': 'Pharma', 'TATASTEEL.NS': 'Metals', 'ITC.NS': 'FMCG'}
+astro_weights = {'Banking': 90, 'Auto': 85, 'CapGoods': 85, 'Energy': 65, 'Metals': 80, 'Pharma': 45, 'IT': 30, 'FMCG': 25}
+
+st.markdown('<div class="gradient-text">ASTRO-QUANT PRO SCANNER</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-text">Live Options & Swing Recommendations directly from the Algo Dashboard</div>', unsafe_allow_html=True)
+
+st.markdown('<div style="background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin-bottom: 30px; text-align:center;"><h4 style="color:#f8fafc; margin-top:0; margin-bottom:15px;">🔍 Market Scanner Controls</h4><p style="color:#94a3b8; font-size:0.9rem; margin-bottom:0;">Leave date as today for live scanning, or select a past date to backtest.</p></div>', unsafe_allow_html=True)
+
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    selected_date 
